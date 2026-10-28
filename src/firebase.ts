@@ -1,6 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
 import { getDatabase } from 'firebase/database';
 
 export const firebaseConfig = {
@@ -16,7 +15,6 @@ export const firebaseConfig = {
 // Initialize Firebase safely
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 export const rtdb = getDatabase(app);
 
 export default app;

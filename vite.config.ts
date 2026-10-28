@@ -11,7 +11,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          firebase: ['firebase/app', 'firebase/firestore', 'firebase/storage', 'firebase/database'],
+          firebase: ['firebase/app', 'firebase/firestore', 'firebase/database'],
+          supabase: ['@supabase/supabase-js'],
           framer: ['framer-motion'],
         },
       },
