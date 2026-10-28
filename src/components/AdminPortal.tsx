@@ -707,6 +707,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToSite }) => {
                       <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
                       <span>Syncing with Cloud Firestore...</span>
                     </div>
+                  ) : items.length === 0 ? (
+                    <div className="text-center py-16 bg-slate-900 rounded-3xl border border-dashed border-slate-800 p-8 space-y-3">
+                      <ImageIcon className="w-10 h-10 text-slate-600 mx-auto" />
+                      <div>
+                        <h5 className="font-bold text-sm text-white">No works currently in showcase</h5>
+                        <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                          All cards have been deleted. You can upload your own real workshop photos using the button above, or click below if you wish to restore default sample cards anytime.
+                        </p>
+                      </div>
+                      <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                        <button
+                          onClick={() => setIsUploading(true)}
+                          className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Upload Real Photo</span>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm('Load default Kashmir sample works into Cloud Firestore?')) {
+                              await resetToDefaults();
+                            }
+                          }}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-slate-700"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Load Sample Works</span>
+                        </button>
+                      </div>
+                    </div>
                   ) : filteredItems.length === 0 ? (
                     <div className="text-center py-12 text-slate-500 text-xs">
                       No images found matching your filter.
