@@ -23,7 +23,7 @@ const CATEGORIES: ProductCategory[] = [
 ];
 
 export const PortfolioGallery: React.FC = () => {
-  const { approvedItems } = usePortfolio();
+  const { approvedItems, isLoading } = usePortfolio();
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory>('All');
   const [activeItem, setActiveItem] = useState<PortfolioItem | null>(null);
 
@@ -71,7 +71,9 @@ export const PortfolioGallery: React.FC = () => {
       {filteredItems.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-stone-300 dark:border-slate-800 p-8">
           <Layers className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-          <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No works in this category currently</h4>
+          <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+            {isLoading ? 'Loading works from Cloud Firestore...' : 'No works in this category currently'}
+          </h4>
         </div>
       ) : (
         <motion.div

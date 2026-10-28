@@ -10,8 +10,10 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { InquiryFormState } from '../types';
+import { usePortfolio } from '../context/PortfolioContext';
 
 export const LocationAndContact: React.FC = () => {
+  const { addInquiry } = usePortfolio();
   const [formData, setFormData] = useState<InquiryFormState>({
     name: '',
     phone: '',
@@ -30,6 +32,9 @@ export const LocationAndContact: React.FC = () => {
       alert('Please enter your name and phone number.');
       return;
     }
+
+    // Save directly to Cloud Firestore so the admin sees it in real time
+    addInquiry(formData).catch((err) => console.warn('Inquiry cloud log:', err));
 
     const message = encodeURIComponent(
       `*New Order Inquiry via Ahmad Digital Printers Website*\n\n` +
