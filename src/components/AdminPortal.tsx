@@ -302,11 +302,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToSite }) => {
 
     try {
       setIsUploadingToCloud(true);
-      setUploadStatusText('Uploading image to Firebase Cloud...');
+      setUploadStatusText('Uploading image to Supabase Cloud Storage...');
 
       const finalCloudUrl = await uploadImageToCloud(newImageUrl, newTitle);
 
-      setUploadStatusText('Publishing work to Cloud Firestore...');
+      setUploadStatusText('Publishing work to Live Cloud Database...');
       await addItem({
         title: newTitle.trim(),
         category: newCategory,
@@ -334,8 +334,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToSite }) => {
         setIsUploading(false);
       }, 1500);
     } catch (err) {
-      console.error('Error saving item to Firebase:', err);
-      alert('Failed to save to Firebase. Please check your internet connection.');
+      console.error('Error saving item to Cloud:', err);
+      alert('Failed to save to Cloud. Please check your internet connection.');
     } finally {
       setIsUploadingToCloud(false);
       setUploadStatusText('');
@@ -813,7 +813,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToSite }) => {
 
                       {uploadSuccessMsg && (
                         <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs font-bold flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4" /> Published to Firebase Cloud successfully! Now live for all visitors.
+                          <CheckCircle2 className="w-4 h-4" /> Published successfully! Image stored on Supabase and live for all visitors.
                         </div>
                       )}
                     </form>
