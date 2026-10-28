@@ -12,6 +12,7 @@ import {
 import { db } from '../firebase';
 import { PortfolioItem, ClientInquiry, ServiceDetail } from '../types';
 import { INITIAL_PORTFOLIO, INITIAL_SERVICES } from '../data/initialData';
+import { deleteImageFromCloud } from '../utils/imageUtils';
 
 export interface AuthAttemptResult {
   success: boolean;
@@ -316,9 +317,13 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const deleteItem = async (id: string) => {
+    const targetItem = items.find((item) => item.id === id);
     setItems((prev) => prev.filter((item) => item.id !== id));
 
     try {
+      if (targetItem?.imageUrl) {
+        deleteImageFromCloud(targetItem.imageUrl);
+      }
       const itemRef = doc(db, 'portfolio_items', id);
       await deleteDoc(itemRef);
     } catch (e) {
