@@ -1,5 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { PortfolioItem } from '../types';
+import {
+  collection,
+  onSnapshot,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../firebase';
+import { PortfolioItem, ClientInquiry } from '../types';
 import { INITIAL_PORTFOLIO } from '../data/initialData';
 
 export interface AuthAttemptResult {
@@ -13,19 +24,25 @@ export interface AuthAttemptResult {
 interface PortfolioContextType {
   items: PortfolioItem[];
   approvedItems: PortfolioItem[];
-  toggleApproval: (id: string) => void;
-  toggleFeatured: (id: string) => void;
-  addItem: (item: Omit<PortfolioItem, 'id' | 'dateAdded'>) => void;
-  deleteItem: (id: string) => void;
-  updateItem: (id: string, updates: Partial<PortfolioItem>) => void;
-  resetToDefaults: () => void;
+  isCloudConnected: boolean;
+  isLoading: boolean;
+  toggleApproval: (id: string) => Promise<void>;
+  toggleFeatured: (id: string) => Promise<void>;
+  addItem: (item: Omit<PortfolioItem, 'id' | 'dateAdded'>) => Promise<string>;
+  deleteItem: (id: string) => Promise<void>;
+  updateItem: (id: string, updates: Partial<PortfolioItem>) => Promise<void>;
+  resetToDefaults: () => Promise<void>;
+  inquiries: ClientInquiry[];
+  addInquiry: (inquiry: Omit<ClientInquiry, 'id' | 'createdAt' | 'status'>) => Promise<string>;
+  markInquiryContacted: (id: string) => Promise<void>;
+  deleteInquiry: (id: string) => Promise<void>;
   isAdminAuthenticated: boolean;
   loginAdmin: (password: string) => AuthAttemptResult;
   logoutAdmin: () => void;
   getSecurityLockStatus: () => { isLocked: boolean; remainingSeconds: number; isBruteForce: boolean };
 }
 
-const STORAGE_KEY = 'ahmad_printers_portfolio_v2';
+const STORAGE_KEY = 'ahmad_printers_portfolio_v3';
 const ADMIN_AUTH_KEY = 'ahmad_printers_admin_session';
 const SECURITY_STORAGE_KEY = 'adp_admin_sec_v1';
 export const ADMIN_PASSWORD = 'suhailahmaddar123';
@@ -33,6 +50,7 @@ export const ADMIN_PASSWORD = 'suhailahmaddar123';
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
 export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Local fallback / initial cache
   const [items, setItems] = useState<PortfolioItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -43,10 +61,14 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
     } catch (e) {
-      console.error('Failed to load portfolio:', e);
+      console.error('Failed to load local cached portfolio:', e);
     }
     return INITIAL_PORTFOLIO;
   });
+
+  const [inquiries, setInquiries] = useState<ClientInquiry[]>([]);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     try {
@@ -56,57 +78,241 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   });
 
+  // 1. Real-time Firebase Cloud Firestore Listener for Portfolio Works
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch (e) {
-      console.error('Failed to save portfolio:', e);
-    }
-  }, [items]);
+    let isSubscribed = true;
+    const portfolioCollection = collection(db, 'portfolio_items');
+
+    const unsubscribe = onSnapshot(
+      portfolioCollection,
+      async (snapshot) => {
+        if (!isSubscribed) return;
+
+        if (snapshot.empty) {
+          console.log('Cloud Firestore collection "portfolio_items" is empty. Seeding defaults...');
+          try {
+            const batch = writeBatch(db);
+            INITIAL_PORTFOLIO.forEach((item) => {
+              const docRef = doc(db, 'portfolio_items', item.id);
+              batch.set(docRef, item);
+            });
+            await batch.commit();
+            console.log('Seeded defaults into Cloud Firestore successfully!');
+          } catch (seedErr) {
+            console.warn('Initial seeding fallback:', seedErr);
+            setItems(INITIAL_PORTFOLIO);
+          }
+        } else {
+          const cloudItems: PortfolioItem[] = [];
+          snapshot.forEach((snapDoc) => {
+            const data = snapDoc.data() as Omit<PortfolioItem, 'id'>;
+            cloudItems.push({
+              id: snapDoc.id,
+              ...data,
+            });
+          });
+
+          // Sort by dateAdded descending
+          cloudItems.sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
+
+          setItems(cloudItems);
+          setIsCloudConnected(true);
+          setIsLoading(false);
+
+          // Update local cache for instant offline rendering
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudItems));
+          } catch {
+            // ignore
+          }
+        }
+      },
+      (error) => {
+        console.error('Firestore real-time sync error (using local cache):', error);
+        setIsCloudConnected(false);
+        setIsLoading(false);
+      }
+    );
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // 2. Real-time Firebase Cloud Firestore Listener for Client Inquiries
+  useEffect(() => {
+    const inquiriesCollection = collection(db, 'client_inquiries');
+
+    const unsubscribe = onSnapshot(
+      inquiriesCollection,
+      (snapshot) => {
+        const cloudInquiries: ClientInquiry[] = [];
+        snapshot.forEach((snapDoc) => {
+          cloudInquiries.push({
+            id: snapDoc.id,
+            ...(snapDoc.data() as Omit<ClientInquiry, 'id'>),
+          });
+        });
+
+        // Sort inquiries newest first
+        cloudInquiries.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setInquiries(cloudInquiries);
+      },
+      (error) => {
+        console.warn('Firestore client_inquiries listener:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   const approvedItems = items.filter((item) => item.isApproved);
 
-  const toggleApproval = (id: string) => {
+  // Real-time Cloud CRUD Operations
+  const toggleApproval = async (id: string) => {
+    const current = items.find((i) => i.id === id);
+    if (!current) return;
+    const nextApproved = !current.isApproved;
+
+    // Optimistic UI update
     setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, isApproved: !item.isApproved } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, isApproved: nextApproved } : item))
     );
+
+    try {
+      const itemRef = doc(db, 'portfolio_items', id);
+      await updateDoc(itemRef, { isApproved: nextApproved });
+    } catch (e) {
+      console.error('Error toggling approval in Cloud Firestore:', e);
+    }
   };
 
-  const toggleFeatured = (id: string) => {
+  const toggleFeatured = async (id: string) => {
+    const current = items.find((i) => i.id === id);
+    if (!current) return;
+    const nextFeatured = !current.isFeatured;
+
+    // Optimistic UI update
     setItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, isFeatured: !item.isFeatured } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, isFeatured: nextFeatured } : item))
     );
+
+    try {
+      const itemRef = doc(db, 'portfolio_items', id);
+      await updateDoc(itemRef, { isFeatured: nextFeatured });
+    } catch (e) {
+      console.error('Error toggling featured in Cloud Firestore:', e);
+    }
   };
 
-  const addItem = (newItemData: Omit<PortfolioItem, 'id' | 'dateAdded'>) => {
+  const addItem = async (newItemData: Omit<PortfolioItem, 'id' | 'dateAdded'>): Promise<string> => {
+    const newId = 'port-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     const newItem: PortfolioItem = {
       ...newItemData,
-      id: 'port-' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      id: newId,
       dateAdded: new Date().toISOString().split('T')[0],
     };
+
+    // Optimistic UI update
     setItems((prev) => [newItem, ...prev]);
+
+    try {
+      const itemRef = doc(db, 'portfolio_items', newId);
+      await setDoc(itemRef, newItem);
+      console.log('Saved new work to Cloud Firestore:', newId);
+    } catch (e) {
+      console.error('Error saving item to Cloud Firestore:', e);
+    }
+
+    return newId;
   };
 
-  const deleteItem = (id: string) => {
+  const deleteItem = async (id: string) => {
+    // Optimistic UI update
     setItems((prev) => prev.filter((item) => item.id !== id));
+
+    try {
+      const itemRef = doc(db, 'portfolio_items', id);
+      await deleteDoc(itemRef);
+    } catch (e) {
+      console.error('Error deleting item from Cloud Firestore:', e);
+    }
   };
 
-  const updateItem = (id: string, updates: Partial<PortfolioItem>) => {
+  const updateItem = async (id: string, updates: Partial<PortfolioItem>) => {
+    // Optimistic UI update
     setItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
     );
+
+    try {
+      const itemRef = doc(db, 'portfolio_items', id);
+      await updateDoc(itemRef, updates);
+    } catch (e) {
+      console.error('Error updating item in Cloud Firestore:', e);
+    }
   };
 
-  const resetToDefaults = () => {
+  const resetToDefaults = async () => {
     setItems(INITIAL_PORTFOLIO);
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      const snap = await getDocs(collection(db, 'portfolio_items'));
+      const batch = writeBatch(db);
+      snap.forEach((d) => batch.delete(d.ref));
+      INITIAL_PORTFOLIO.forEach((item) => {
+        batch.set(doc(db, 'portfolio_items', item.id), item);
+      });
+      await batch.commit();
+      console.log('Reset Cloud Firestore to default samples.');
+    } catch (e) {
+      console.error('Error resetting Cloud Firestore:', e);
+    }
   };
 
-  // Security helper
+  // Cloud Inquiry Management
+  const addInquiry = async (
+    inquiryData: Omit<ClientInquiry, 'id' | 'createdAt' | 'status'>
+  ): Promise<string> => {
+    const inqId = 'inq-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const newInquiry: ClientInquiry = {
+      ...inquiryData,
+      id: inqId,
+      createdAt: new Date().toISOString(),
+      status: 'New',
+    };
+
+    try {
+      await setDoc(doc(db, 'client_inquiries', inqId), newInquiry);
+      console.log('Logged order inquiry to Cloud Firestore:', inqId);
+    } catch (e) {
+      console.error('Error logging inquiry to Cloud Firestore:', e);
+    }
+
+    return inqId;
+  };
+
+  const markInquiryContacted = async (id: string) => {
+    setInquiries((prev) =>
+      prev.map((inq) => (inq.id === id ? { ...inq, status: 'Contacted' } : inq))
+    );
+    try {
+      await updateDoc(doc(db, 'client_inquiries', id), { status: 'Contacted' });
+    } catch (e) {
+      console.error('Error updating inquiry status in Firestore:', e);
+    }
+  };
+
+  const deleteInquiry = async (id: string) => {
+    setInquiries((prev) => prev.filter((inq) => inq.id !== id));
+    try {
+      await deleteDoc(doc(db, 'client_inquiries', id));
+    } catch (e) {
+      console.error('Error deleting inquiry from Firestore:', e);
+    }
+  };
+
+  // Anti-Bruteforce & Rate Limiting Security Engine
   const getSecurityData = () => {
     try {
       const raw = localStorage.getItem(SECURITY_STORAGE_KEY);
@@ -199,7 +405,6 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     // 3. Password Verification
     if (passwordInput.trim() === ADMIN_PASSWORD) {
-      // Clear penalties
       saveSecurityData({
         failedAttempts: [],
         lastAttemptTime: now,
@@ -257,12 +462,18 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       value={{
         items,
         approvedItems,
+        isCloudConnected,
+        isLoading,
         toggleApproval,
         toggleFeatured,
         addItem,
         deleteItem,
         updateItem,
         resetToDefaults,
+        inquiries,
+        addInquiry,
+        markInquiryContacted,
+        deleteInquiry,
         isAdminAuthenticated,
         loginAdmin,
         logoutAdmin,

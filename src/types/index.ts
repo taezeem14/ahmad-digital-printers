@@ -35,17 +35,6 @@ export interface ServiceDetail {
   iconName: string;
 }
 
-export interface CalculationQuote {
-  productType: string;
-  quantity: number;
-  paperStock: string;
-  finish: string;
-  rushOrder: boolean;
-  estimatedPrice: number;
-  unitPrice: number;
-  deliveryDays: string;
-}
-
 export interface InquiryFormState {
   name: string;
   phone: string;
@@ -54,4 +43,10 @@ export interface InquiryFormState {
   estimatedQuantity: string;
   details: string;
   urgency: 'Standard (2-3 Days)' | 'Express (24 Hours)' | 'Same Day Urgent';
+}
+
+export interface ClientInquiry extends InquiryFormState {
+  id: string;
+  createdAt: string;
+  status?: 'New' | 'Contacted' | 'Completed';
 }
