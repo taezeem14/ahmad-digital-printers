@@ -54,9 +54,9 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [items, setItems] = useState<PortfolioItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
@@ -85,22 +85,20 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const unsubscribe = onSnapshot(
       portfolioCollection,
-      async (snapshot) => {
+      (snapshot) => {
         if (!isSubscribed) return;
 
         if (snapshot.empty) {
-          console.log('Cloud Firestore collection "portfolio_items" is empty. Seeding defaults...');
+          // When Firestore collection is empty (e.g. admin deleted all cards),
+          // DO NOT re-seed! Respect the admin's deletion so items stay empty.
+          console.log('Cloud Firestore portfolio_items collection is empty.');
+          setItems([]);
+          setIsCloudConnected(true);
+          setIsLoading(false);
           try {
-            const batch = writeBatch(db);
-            INITIAL_PORTFOLIO.forEach((item) => {
-              const docRef = doc(db, 'portfolio_items', item.id);
-              batch.set(docRef, item);
-            });
-            await batch.commit();
-            console.log('Seeded defaults into Cloud Firestore successfully!');
-          } catch (seedErr) {
-            console.warn('Initial seeding fallback:', seedErr);
-            setItems(INITIAL_PORTFOLIO);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+          } catch {
+            // ignore
           }
         } else {
           const cloudItems: PortfolioItem[] = [];

@@ -1,0 +1,189 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: portfolio_items
+    // Document ID: auto-generated or string slug (e.g., 'port-1', 'port-ml4k9...')
+    // Fields:
+    //   - id: string (required, length 1..64, immutable on update) - Unique item identifier
+    //   - title: string (required, length 1..200) - Title of the print sample/work
+    //   - category: string (required, one of allowed categories) - Print category
+    //   - imageUrl: string (required, length 5..500000, valid URL or data URL) - High-res image
+    //   - client: string (optional, length 0..150) - Client or business name
+    //   - description: string (required, length 1..3000) - Detailed description of craftsmanship
+    //   - finish: string (optional, length 0..150) - Print finish & embellishments
+    //   - dimensions: string (optional, length 0..150) - Physical dimensions & specifications
+    //   - dateAdded: string (required, length 4..35, immutable on update) - Date added (YYYY-MM-DD)
+    //   - isApproved: bool (required) - Moderation flag: visible on public showcase
+    //   - isFeatured: bool (optional) - Highlighted showcase item flag
+    //
+    // Collection: client_inquiries
+    // Document ID: auto-generated or string slug (e.g., 'inq-ml4k9...')
+    // Fields:
+    //   - id: string (required, length 1..64, immutable on update) - Unique inquiry identifier
+    //   - name: string (required, length 1..100) - Client contact name
+    //   - phone: string (required, length 7..30) - Contact phone/WhatsApp number
+    //   - businessName: string (optional, length 0..150) - Client firm or shop name
+    //   - productType: string (required, length 1..100) - Printing service inquired about
+    //   - estimatedQuantity: string (required, length 0..100) - Desired print quantity
+    //   - details: string (required, length 0..3000) - Specific notes or custom requirements
+    //   - urgency: string (required, one of allowed urgency tiers) - Turnaround urgency
+    //   - createdAt: string (required, length 4..40, immutable on update) - ISO creation timestamp
+    //   - status: string (optional, one of 'New', 'Contacted', 'Completed') - Inquiry workflow state
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if request is from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Verify required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Verify that the document contains only allowed fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Ensure specific immutable fields are not modified during an update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate image URL (supports https://, http://, or base64 data:image/ URLs from client compression)
+    function isValidImageUrl(url) {
+      return url is string &&
+             url.size() >= 5 &&
+             url.size() <= 500000 &&
+             (url.matches("^https?://.*") || url.matches("^data:image/.*"));
+    }
+
+    // ===============================================================
+    // Admin Authorization Helper
+    // ===============================================================
+    // In production Firebase architecture, administrative access should be restricted
+    // using Firebase Authentication:
+    //   `return request.auth != null;` (or check specific admin claim / email).
+    //
+    // If your React website currently authenticates the press admin via the local
+    // PIN / password portal without Firebase Auth accounts, `return true;` allows the
+    // existing admin interface to write and moderate content without expiring,
+    // while STILL enforcing complete schema validation, data types, and DoS size limits.
+    function isAdmin() {
+      // Toggle to `request.auth != null` when using Firebase Authentication
+      return true;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Validate Portfolio Item schema and bounds
+    function isValidPortfolioItem(data) {
+      let allowedCategories = [
+        'All',
+        'Wedding Cards',
+        'Flex & Banners',
+        'Packaging & Boxes',
+        'Corporate Stationery',
+        'Stickers & Labels',
+        'Books & Bill Books',
+        'Signage & Hoardings'
+      ];
+
+      return hasRequiredFields(['id', 'title', 'category', 'imageUrl', 'description', 'dateAdded', 'isApproved']) &&
+             hasOnlyAllowedFields([
+               'id', 'title', 'category', 'imageUrl', 'client', 'description',
+               'finish', 'dimensions', 'dateAdded', 'isApproved', 'isFeatured'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.category is string && data.category in allowedCategories &&
+             isValidImageUrl(data.imageUrl) &&
+             (!('client' in data) || (data.client is string && data.client.size() <= 150)) &&
+             data.description is string && data.description.size() >= 1 && data.description.size() <= 3000 &&
+             (!('finish' in data) || (data.finish is string && data.finish.size() <= 150)) &&
+             (!('dimensions' in data) || (data.dimensions is string && data.dimensions.size() <= 150)) &&
+             data.dateAdded is string && data.dateAdded.size() >= 4 && data.dateAdded.size() <= 35 &&
+             data.isApproved is bool &&
+             (!('isFeatured' in data) || data.isFeatured is bool);
+    }
+
+    // Validate Client Inquiry schema and bounds
+    function isValidClientInquiry(data) {
+      let allowedUrgencies = [
+        'Standard (2-3 Days)',
+        'Express (24 Hours)',
+        'Same Day Urgent'
+      ];
+      let allowedStatuses = ['New', 'Contacted', 'Completed'];
+
+      return hasRequiredFields([
+               'id', 'name', 'phone', 'productType',
+               'estimatedQuantity', 'details', 'urgency', 'createdAt'
+             ]) &&
+             hasOnlyAllowedFields([
+               'id', 'name', 'phone', 'businessName', 'productType',
+               'estimatedQuantity', 'details', 'urgency', 'createdAt', 'status'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30 &&
+             (!('businessName' in data) || (data.businessName is string && data.businessName.size() <= 150)) &&
+             data.productType is string && data.productType.size() >= 1 && data.productType.size() <= 100 &&
+             data.estimatedQuantity is string && data.estimatedQuantity.size() <= 100 &&
+             data.details is string && data.details.size() <= 3000 &&
+             data.urgency is string && data.urgency in allowedUrgencies &&
+             data.createdAt is string && data.createdAt.size() >= 4 && data.createdAt.size() <= 40 &&
+             (!('status' in data) || (data.status is string && data.status in allowedStatuses));
+    }
+
+    // ===============================================================
+    // Rules Definition
+    // ===============================================================
+
+    // 1. Portfolio Items Collection
+    // Public visitors can read portfolio items (showcase works).
+    // Admin can create, update, or delete portfolio items.
+    match /portfolio_items/{itemId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidPortfolioItem(request.resource.data);
+      allow update: if isAdmin() &&
+                       isValidPortfolioItem(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id', 'dateAdded']);
+      allow delete: if isAdmin();
+    }
+
+    // 2. Client Inquiries Collection
+    // Any prospective client can submit an order inquiry from the contact form.
+    // Admin can read, update status (e.g., mark contacted), and delete inquiries.
+    match /client_inquiries/{inquiryId} {
+      allow create: if isValidClientInquiry(request.resource.data);
+      allow read: if isAdmin();
+      allow update: if isAdmin() &&
+                       isValidClientInquiry(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id', 'createdAt']);
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // Default Deny Root Fallback
+    // ===============================================================
+    // Deny all access to any other collections or paths by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

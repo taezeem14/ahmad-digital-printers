@@ -68,11 +68,43 @@ export const PortfolioGallery: React.FC = () => {
       </div>
 
       {/* Gallery Grid */}
-      {filteredItems.length === 0 ? (
+      {approvedItems.length === 0 ? (
+        <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-stone-300 dark:border-slate-800 p-8 space-y-4 max-w-xl mx-auto shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center mx-auto">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+              {isLoading ? 'Connecting to Cloud Firestore...' : 'New Works Coming Soon'}
+            </h4>
+            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              We are updating our live portfolio gallery with fresh wedding stationery and flex hoarding projects from our Main Chowk Sopore workshop floor.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+            <a
+              href="https://wa.me/919797704198?text=Hello%20Ahmad%20Digital%20Printers%2C%20can%20you%20share%20your%20latest%20work%20samples%20and%20catalogs%3F"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-full text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 shadow hover:opacity-95 flex items-center justify-center gap-1.5"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>Request Samples on WhatsApp</span>
+            </a>
+            <a
+              href="tel:9797704198"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-full text-xs font-semibold text-slate-700 dark:text-slate-300 bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 flex items-center justify-center gap-1.5"
+            >
+              <Phone className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Call: 9797704198</span>
+            </a>
+          </div>
+        </div>
+      ) : filteredItems.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-stone-300 dark:border-slate-800 p-8">
           <Layers className="w-8 h-8 text-slate-400 mx-auto mb-2" />
           <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-            {isLoading ? 'Loading works from Cloud Firestore...' : 'No works in this category currently'}
+            No works found in "{selectedCategory}"
           </h4>
         </div>
       ) : (
@@ -143,11 +175,15 @@ export const PortfolioGallery: React.FC = () => {
       {/* Lightbox Modal */}
       <AnimatePresence>
         {activeItem && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setActiveItem(null)}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
               className="relative w-full max-w-2xl rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-stone-200 dark:border-slate-800 overflow-hidden"
             >
               <button
