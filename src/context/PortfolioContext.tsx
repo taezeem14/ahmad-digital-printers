@@ -2,6 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { PortfolioItem } from '../types';
 import { INITIAL_PORTFOLIO } from '../data/initialData';
 
+export interface AuthAttemptResult {
+  success: boolean;
+  reason?: 'invalid_password' | 'rate_limited' | 'bruteforce';
+  remainingAttempts?: number;
+  retryAfterSeconds?: number;
+  message?: string;
+}
+
 interface PortfolioContextType {
   items: PortfolioItem[];
   approvedItems: PortfolioItem[];
@@ -12,13 +20,15 @@ interface PortfolioContextType {
   updateItem: (id: string, updates: Partial<PortfolioItem>) => void;
   resetToDefaults: () => void;
   isAdminAuthenticated: boolean;
-  loginAdmin: (pin: string) => boolean;
+  loginAdmin: (password: string) => AuthAttemptResult;
   logoutAdmin: () => void;
+  getSecurityLockStatus: () => { isLocked: boolean; remainingSeconds: number; isBruteForce: boolean };
 }
 
 const STORAGE_KEY = 'ahmad_printers_portfolio_v2';
 const ADMIN_AUTH_KEY = 'ahmad_printers_admin_session';
-export const ADMIN_PIN = 'ahmad2026';
+const SECURITY_STORAGE_KEY = 'adp_admin_sec_v1';
+export const ADMIN_PASSWORD = 'suhailahmaddar123';
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
@@ -33,7 +43,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
     } catch (e) {
-      console.error('Failed to load portfolio from storage:', e);
+      console.error('Failed to load portfolio:', e);
     }
     return INITIAL_PORTFOLIO;
   });
@@ -50,7 +60,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
     } catch (e) {
-      console.error('Failed to save portfolio to storage:', e);
+      console.error('Failed to save portfolio:', e);
     }
   }, [items]);
 
@@ -96,17 +106,141 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.removeItem(STORAGE_KEY);
   };
 
-  const loginAdmin = (pin: string): boolean => {
-    if (pin.trim() === ADMIN_PIN) {
+  // Security helper
+  const getSecurityData = () => {
+    try {
+      const raw = localStorage.getItem(SECURITY_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // ignore
+    }
+    return {
+      failedAttempts: [] as number[],
+      lastAttemptTime: 0,
+      lockedUntil: 0,
+      bruteForceUntil: 0,
+    };
+  };
+
+  const saveSecurityData = (data: any) => {
+    try {
+      localStorage.setItem(SECURITY_STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // ignore
+    }
+  };
+
+  const getSecurityLockStatus = () => {
+    const sec = getSecurityData();
+    const now = Date.now();
+
+    if (sec.bruteForceUntil && now < sec.bruteForceUntil) {
+      return {
+        isLocked: true,
+        remainingSeconds: Math.ceil((sec.bruteForceUntil - now) / 1000),
+        isBruteForce: true,
+      };
+    }
+
+    if (sec.lockedUntil && now < sec.lockedUntil) {
+      return {
+        isLocked: true,
+        remainingSeconds: Math.ceil((sec.lockedUntil - now) / 1000),
+        isBruteForce: false,
+      };
+    }
+
+    return {
+      isLocked: false,
+      remainingSeconds: 0,
+      isBruteForce: false,
+    };
+  };
+
+  const loginAdmin = (passwordInput: string): AuthAttemptResult => {
+    const now = Date.now();
+    const sec = getSecurityData();
+
+    // 1. Check if already under active lockout
+    if (sec.bruteForceUntil && now < sec.bruteForceUntil) {
+      const remaining = Math.ceil((sec.bruteForceUntil - now) / 1000);
+      return {
+        success: false,
+        reason: 'bruteforce',
+        retryAfterSeconds: remaining,
+        message: `Automated brute-force pattern detected. Locked out for ${remaining} seconds.`,
+      };
+    }
+
+    if (sec.lockedUntil && now < sec.lockedUntil) {
+      const remaining = Math.ceil((sec.lockedUntil - now) / 1000);
+      return {
+        success: false,
+        reason: 'rate_limited',
+        retryAfterSeconds: remaining,
+        message: `Maximum attempts exceeded. Try again in ${remaining} seconds.`,
+      };
+    }
+
+    // 2. Anti-Bruteforcer Detection: Rapid consecutive attempts (< 600ms)
+    if (sec.lastAttemptTime && now - sec.lastAttemptTime < 600) {
+      sec.bruteForceUntil = now + 5 * 60 * 1000; // 5 minute lock
+      sec.lastAttemptTime = now;
+      saveSecurityData(sec);
+      return {
+        success: false,
+        reason: 'bruteforce',
+        retryAfterSeconds: 300,
+        message: 'Security Alert: Rapid automated submissions detected. Access blocked for 5 minutes.',
+      };
+    }
+
+    sec.lastAttemptTime = now;
+
+    // 3. Password Verification
+    if (passwordInput.trim() === ADMIN_PASSWORD) {
+      // Clear penalties
+      saveSecurityData({
+        failedAttempts: [],
+        lastAttemptTime: now,
+        lockedUntil: 0,
+        bruteForceUntil: 0,
+      });
       setIsAdminAuthenticated(true);
       try {
         sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
       } catch {
         // ignore
       }
-      return true;
+      return { success: true };
     }
-    return false;
+
+    // 4. Failed attempt handling (max 5 per minute)
+    const recentFailures = (sec.failedAttempts || []).filter(
+      (ts: number) => now - ts < 60 * 1000
+    );
+    recentFailures.push(now);
+    sec.failedAttempts = recentFailures;
+
+    if (recentFailures.length >= 5) {
+      sec.lockedUntil = now + 60 * 1000; // 60s lockout
+      saveSecurityData(sec);
+      return {
+        success: false,
+        reason: 'rate_limited',
+        retryAfterSeconds: 60,
+        message: 'Rate limit reached: Maximum 5 attempts per minute. Locked for 60 seconds.',
+      };
+    }
+
+    const remaining = 5 - recentFailures.length;
+    saveSecurityData(sec);
+    return {
+      success: false,
+      reason: 'invalid_password',
+      remainingAttempts: remaining,
+      message: `Incorrect password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining this minute.`,
+    };
   };
 
   const logoutAdmin = () => {
@@ -132,6 +266,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isAdminAuthenticated,
         loginAdmin,
         logoutAdmin,
+        getSecurityLockStatus,
       }}
     >
       {children}
