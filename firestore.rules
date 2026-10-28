@@ -36,6 +36,22 @@ service cloud.firestore {
     //   - createdAt: string (required, length 4..40, immutable on update) - ISO creation timestamp
     //   - status: string (optional, one of 'New', 'Contacted', 'Completed') - Inquiry workflow state
     //
+    // Collection: printing_services
+    // Document ID: auto-generated or string slug (e.g., 'wedding-cards', 'srv-xxxx')
+    // Fields:
+    //   - id: string (required, length 1..64, immutable on update) - Unique service identifier
+    //   - title: string (required, length 1..200) - Service title / display name
+    //   - category: string (required, one of allowed categories) - Print category
+    //   - startingPrice: string (required, length 1..100) - Base pricing text (e.g. '₹45 / card')
+    //   - turnaround: string (required, length 1..100) - Turnaround time (e.g. 'Same Day / 24 Hours')
+    //   - tagline: string (optional, length 0..300) - Marketing tagline or catchphrase
+    //   - description: string (required, length 1..3000) - Detailed description of the service
+    //   - specs: list of strings (required, size 0..30, joined chars <= 6000) - Key technical specifications
+    //   - iconName: string (required, length 1..50) - Lucide icon identifier
+    //   - isAvailable: bool (optional) - Service availability flag
+    //   - orderIndex: number (optional, >= 0) - Ordering weight for showcase display
+    //   - popularFor: string (optional, length 0..300) - Common customer applications
+    //
     // ===============================================================
 
     // ===============================================================
@@ -150,6 +166,42 @@ service cloud.firestore {
              (!('status' in data) || (data.status is string && data.status in allowedStatuses));
     }
 
+    // Validate Printing Service schema and bounds
+    function isValidPrintingService(data) {
+      let allowedCategories = [
+        'All',
+        'Wedding Cards',
+        'Flex & Banners',
+        'Packaging & Boxes',
+        'Corporate Stationery',
+        'Stickers & Labels',
+        'Books & Bill Books',
+        'Signage & Hoardings'
+      ];
+
+      return hasRequiredFields([
+               'id', 'title', 'category', 'startingPrice',
+               'turnaround', 'description', 'specs', 'iconName'
+             ]) &&
+             hasOnlyAllowedFields([
+               'id', 'title', 'category', 'startingPrice', 'turnaround',
+               'tagline', 'description', 'specs', 'iconName',
+               'isAvailable', 'orderIndex', 'popularFor'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.category is string && data.category in allowedCategories &&
+             data.startingPrice is string && data.startingPrice.size() >= 1 && data.startingPrice.size() <= 100 &&
+             data.turnaround is string && data.turnaround.size() >= 1 && data.turnaround.size() <= 100 &&
+             (!('tagline' in data) || (data.tagline is string && data.tagline.size() <= 300)) &&
+             data.description is string && data.description.size() >= 1 && data.description.size() <= 3000 &&
+             data.specs is list && data.specs.size() <= 30 && data.specs.join('').size() <= 6000 &&
+             data.iconName is string && data.iconName.size() >= 1 && data.iconName.size() <= 50 &&
+             (!('isAvailable' in data) || data.isAvailable is bool) &&
+             (!('orderIndex' in data) || (data.orderIndex is number && data.orderIndex >= 0)) &&
+             (!('popularFor' in data) || (data.popularFor is string && data.popularFor.size() <= 300));
+    }
+
     // ===============================================================
     // Rules Definition
     // ===============================================================
@@ -175,6 +227,18 @@ service cloud.firestore {
       allow update: if isAdmin() &&
                        isValidClientInquiry(request.resource.data) &&
                        areImmutableFieldsUnchanged(['id', 'createdAt']);
+      allow delete: if isAdmin();
+    }
+
+    // 3. Printing Services Collection
+    // Public visitors can read printing services and pricing catalog.
+    // Admin can create, update, or delete printing services.
+    match /printing_services/{serviceId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidPrintingService(request.resource.data);
+      allow update: if isAdmin() &&
+                       isValidPrintingService(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id']);
       allow delete: if isAdmin();
     }
 

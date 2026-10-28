@@ -30,9 +30,11 @@ export interface ServiceDetail {
   description: string;
   specs: string[];
   turnaround: string;
-  popularFor: string;
+  popularFor?: string;
   startingPrice: string;
   iconName: string;
+  isAvailable?: boolean;
+  orderIndex?: number;
 }
 
 export interface InquiryFormState {
